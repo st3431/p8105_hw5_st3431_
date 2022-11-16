@@ -1,0 +1,109 @@
+---
+title: "p8105_hw5_st3431"
+output: github_document
+date: "2022-11-16"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r}
+library(tidyverse)
+```
+
+**Problem 2** 
+
+The raw data has variables such as the date of the crime, the victims names, the location which the crime was occurring and the outcome of the crime (whether it was solved or remained unsolved). 
+
+Importing and cleaning the dataset
+```{r}
+crimes_df =
+  read_csv("hw5_data/homicide-data.csv", na = c("", "Unknown")) %>%
+  mutate(
+    city_state = str_c(city, state),
+    resolution = case_when(
+      disposition == "Closed without arrest" ~ "unsolved",
+      disposition == "Open/No arrest" ~ "unsolved",
+      disposition == "Closed by arrest" ~ "solved")) %>% 
+  relocate(city_state)  
+ 
+```
+
+Unsolved homicides in Baltimore, MD 
+
+```{r}
+baltimore_df =
+  crimes_df %>% 
+  filter(city_state == "BaltimoreMD")
+
+baltimore_crimes =
+  baltimore_df %>% 
+    summarize(
+      unsolved = sum(resolution == "unsolved"),
+      n = n())
+
+baltimore_prop =
+  prop.test(
+    x = baltimore_crimes %>% pull(unsolved),
+    n = baltimore_crimes %>% pull(n)) 
+
+  broom::tidy(baltimore_prop) %>% 
+  select(estimate, conf.low, conf.high) %>% 
+  knitr::kable()
+```
+
+The estimated proportion of unsolved cases within Baltimore, Marlyand is 64.56% with a 95% confidence interval of (62.76%, 66.32%). 
+
+
+Unsolved cases across each city 
+
+```{r}
+prop_test_function = function(city_df) {
+  city_totals =
+    city_df %>% 
+      summarize(
+        unsolved = sum(resolution == "unsolved"),
+        n = n())
+    city_prop =
+    prop.test(
+      x = city_totals %>% pull(unsolved),
+      n = city_totals %>% pull(n))
+ return(city_prop) }
+
+prop_test_function(baltimore_df)
+
+
+all_cities=
+  crimes_df %>% 
+  nest(data = uid:resolution) %>%
+  mutate(
+    results = map(data, prop_test_function), 
+    tidy_results= map(results, broom::tidy)
+  ) %>%
+  select(city_state, tidy_results) %>% 
+  unnest(tidy_results) %>% 
+  select(city_state, estimate, conf.low, conf.high) %>%  
+  rename(low_conf= conf.low, high_conf= conf.high)
+  
+```
+
+
+Creating a plot showing estimates and CI's for each city
+
+
+```{r}
+all_cities %>%  
+  mutate(city_state= fct_reorder(city_state, estimate)) %>%
+  ggplot(aes(x= city_state, y= estimate)) + 
+  geom_point() + 
+  geom_errorbar(aes(ymin= low_conf, ymax= high_conf)) + 
+  labs(title= "Estimates of Unsolved Cases in 50 U.S. Cities", 
+       x= "City", 
+       y= "Estimates of Unsolved Cases") +
+  coord_flip()
+  
+```
+
